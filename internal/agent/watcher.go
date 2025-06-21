@@ -44,7 +44,7 @@ func watchLoop(w *fsnotify.Watcher) {
 				return
 			}
 			i++
-			log.Printf("%3d %s", i, e)
+			log.Printf("%3d %s %s", i, e)
 
 			//eventually need to set up gRPC to send to event-ingestor service via client.go
 		}
