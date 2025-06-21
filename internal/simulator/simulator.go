@@ -37,7 +37,7 @@ func GenerateRawAuditEvents() {
 	time.Sleep(5 * time.Second)
 	ticker.Stop()
 	done <- true
-	println("simulation done")
+	println("SIMULATION DONE")
 }
 
 // Writes a benign login event to /tmp/simulation_agent.log in audit.log style
