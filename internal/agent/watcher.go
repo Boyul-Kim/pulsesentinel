@@ -9,6 +9,10 @@ import (
 	"github.com/hpcloud/tail"
 )
 
+type Agent struct {
+	ECSEvents map[string][]ECSEvent
+}
+
 type ECSEvent struct {
 	Timestamp   string                 `json:"@timestamp"`
 	Event       map[string]interface{} `json:"event"`
@@ -20,7 +24,7 @@ type ECSEvent struct {
 	File        map[string]interface{} `json:"file,omitempty"`
 }
 
-func Watch(path string) {
+func (a *Agent) Watch(path string) {
 	eventGroups := make(map[string][]string)
 	t, err := tail.TailFile(path, tail.Config{Follow: true})
 	if err != nil {
@@ -33,9 +37,16 @@ func Watch(path string) {
 		auditEvent := parseAuditLinesToMap(eventGroups[msgID])
 		ecsEvent := mapAuditToECS(auditEvent)
 
-		fmt.Println("ECS EVENT", ecsEvent)
-		// outputECSJSON(ecsEvent)
-		// delete(eventGroups, msgID)
+		// fmt.Println("ECS EVENT", ecsEvent)
+		// fmt.Println("ECS", msgID, ecsEvent.Event)
+		a.ECSEvents[msgID] = append(a.ECSEvents[msgID], ecsEvent)
+		delete(eventGroups, msgID)
+	}
+
+	//can't access this because of the loop -> may need to create a goroutine that sends the ecs events and have a map that gets them all and then send to ingestor via gRPC?
+	//will  need to think about this
+	for _, event := range a.ECSEvents {
+		fmt.Println("EVENT", event)
 	}
 }
 
@@ -53,6 +64,7 @@ func extractMsgID(line string) string {
 func parseAuditLinesToMap(lines []string) map[string]string {
 	fields := make(map[string]string)
 	kvRe := regexp.MustCompile(`(\w+)=("[^"]*"|'[^']*'|[^\s]+)`)
+	innerKVRe := regexp.MustCompile(`(\w+)=("[^"]*"|'[^']*'|[^\s]+)`)
 	for _, line := range lines {
 		if idx := strings.Index(line, "type="); idx != -1 {
 			parts := strings.SplitN(line[idx:], " ", 2)
@@ -65,7 +77,16 @@ func parseAuditLinesToMap(lines []string) map[string]string {
 			key := match[1]
 			val := match[2]
 			val = strings.Trim(val, `"'`)
-			fields[key] = val
+			if key == "msg" && strings.HasPrefix(val, "op=") {
+				for _, inner := range innerKVRe.FindAllStringSubmatch(val, -1) {
+					innerKey := inner[1]
+					innerVal := inner[2]
+					innerVal = strings.Trim(innerVal, `"'`)
+					fields[innerKey] = innerVal
+				}
+			} else {
+				fields[key] = val
+			}
 		}
 	}
 	return fields
