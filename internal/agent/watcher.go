@@ -1,16 +1,24 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
+	pb "github.com/Boyul-Kim/pulsesentinel/proto/sentinel"
 	"github.com/hpcloud/tail"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Agent struct {
-	ECSEvents map[string][]ECSEvent
+	ECSEvents  map[string][]ECSEvent
+	GrpcClient pb.EventIngestorClient
 }
 
 type ECSEvent struct {
@@ -22,6 +30,28 @@ type ECSEvent struct {
 	Destination map[string]interface{} `json:"destination,omitempty"`
 	Process     map[string]interface{} `json:"process,omitempty"`
 	File        map[string]interface{} `json:"file,omitempty"`
+}
+
+func InitAgent(addr string) *Agent {
+	fmt.Println("STARTING CLIENT SERVER")
+
+	// TODO:
+	// -add batching/retry logicaddr
+	// -context with timeouts
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		log.Fatalf("Failed to connect: %v", err)
+	}
+
+	client := pb.NewEventIngestorClient(conn)
+	return &Agent{
+		ECSEvents:  make(map[string][]ECSEvent),
+		GrpcClient: client,
+	}
 }
 
 func (a *Agent) Watch(path string) {
@@ -36,17 +66,79 @@ func (a *Agent) Watch(path string) {
 		eventGroups[msgID] = append(eventGroups[msgID], line.Text)
 		auditEvent := parseAuditLinesToMap(eventGroups[msgID])
 		ecsEvent := mapAuditToECS(auditEvent)
-
-		// fmt.Println("ECS EVENT", ecsEvent)
-		// fmt.Println("ECS", msgID, ecsEvent.Event)
+		go a.sendECSEvents(ecsEvent)
 		a.ECSEvents[msgID] = append(a.ECSEvents[msgID], ecsEvent)
 		delete(eventGroups, msgID)
 	}
+}
 
-	//can't access this because of the loop -> may need to create a goroutine that sends the ecs events and have a map that gets them all and then send to ingestor via gRPC?
-	//will  need to think about this
-	for _, event := range a.ECSEvents {
-		fmt.Println("EVENT", event)
+func (a *Agent) sendECSEvents(event ECSEvent) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	protoEvent := toProtoSecurityEvents(event)
+	resp, err := a.GrpcClient.SendEvent(ctx, protoEvent)
+	if err != nil {
+		log.Printf("Error sending event: %v", err)
+		return
+	}
+
+	log.Printf("Ingestor response: %s", resp.Message)
+
+}
+
+func toProtoSecurityEvents(ecs ECSEvent) *pb.SecurityEvent {
+	var ts *timestamppb.Timestamp
+	if ecs.Timestamp != "" {
+		// RFC3339 format
+		t, err := time.Parse(time.RFC3339, ecs.Timestamp)
+		if err == nil {
+			ts = timestamppb.New(t)
+		} else {
+			ts = timestamppb.Now()
+		}
+	} else {
+		ts = timestamppb.Now()
+	}
+
+	return &pb.SecurityEvent{
+		EventId:   getStr(ecs.Event, "id"),
+		Timestamp: ts,
+		Event: &pb.EventMeta{
+			Category: getStrSlice(ecs.Event, "category"),
+			Type:     getStrSlice(ecs.Event, "type"),
+			Action:   getStr(ecs.Event, "action"),
+			Outcome:  getStr(ecs.Event, "outcome"),
+			Provider: getStr(ecs.Event, "provider"),
+		},
+		Host: &pb.HostMeta{
+			Hostname: getStr(ecs.Host, "hostname"),
+			Id:       getStr(ecs.Host, "id"),
+		},
+		User: &pb.UserMeta{
+			Name:        getStr(ecs.User, "name"),
+			Id:          getStr(ecs.User, "id"),
+			EffectiveId: getStr(ecs.User, "effective_id"),
+		},
+		Source: &pb.SourceMeta{
+			Ip:   getStr(ecs.Source, "ip"),
+			Port: getInt32(ecs.Source, "port"),
+		},
+		Destination: &pb.DestinationMeta{
+			Ip:   getStr(ecs.Destination, "ip"),
+			Port: getInt32(ecs.Destination, "port"),
+		},
+		Process: &pb.ProcessMeta{
+			Name:       getStr(ecs.Process, "name"),
+			Executable: getStr(ecs.Process, "executable"),
+			Pid:        getInt32(ecs.Process, "pid"),
+			Ppid:       getInt32(ecs.Process, "ppid"),
+			Args:       getStrSlice(ecs.Process, "args"),
+		},
+		File: &pb.FileMeta{
+			Path:   getStr(ecs.File, "path"),
+			Access: getStr(ecs.File, "access"),
+		},
 	}
 }
 
@@ -92,6 +184,43 @@ func parseAuditLinesToMap(lines []string) map[string]string {
 	return fields
 }
 
+func getStr(m map[string]interface{}, k string) string {
+	if v, ok := m[k]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+func getStrSlice(m map[string]interface{}, k string) []string {
+	if v, ok := m[k]; ok && v != nil {
+		if arr, ok := v.([]string); ok {
+			return arr
+		} else if s, ok := v.(string); ok {
+			return []string{s}
+		}
+	}
+	return nil
+}
+
+func getInt32(m map[string]interface{}, k string) int32 {
+	if v, ok := m[k]; ok && v != nil {
+		switch vv := v.(type) {
+		case int:
+			return int32(vv)
+		case int32:
+			return vv
+		case int64:
+			return int32(vv)
+		case float64:
+			return int32(vv)
+		case string:
+			n, _ := strconv.Atoi(vv)
+			return int32(n)
+		}
+	}
+	return 0
+}
+
 func mapAuditToECS(audit map[string]string) ECSEvent {
 	ecs := ECSEvent{
 		Event:       make(map[string]interface{}),
@@ -104,7 +233,7 @@ func mapAuditToECS(audit map[string]string) ECSEvent {
 	}
 
 	if ts, ok := audit["timestamp"]; ok {
-		ecs.Timestamp = ts // Should be ISO8601 or RFC3339 format
+		ecs.Timestamp = ts // RFC3339 format
 	}
 	if id, ok := audit["msgid"]; ok {
 		ecs.Event["id"] = id

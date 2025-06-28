@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package sentinel;
+
+option go_package = "github.com/Boyul-Kim/pulsesentinel/proto/sentinel;sentinel";
+
+import "google/protobuf/timestamp.proto";
+
+//run in root:
+//protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/sentinel/event.proto
+
+
+// Top-level ECS-like event message
+message SecurityEvent {
+    string event_id = 1;                    // ECS: event.id
+    google.protobuf.Timestamp timestamp = 2; // ECS: @timestamp
+
+    EventMeta event = 3;                     // ECS: event.*
+    HostMeta host = 4;                       // ECS: host.*
+    UserMeta user = 5;                       // ECS: user.*
+    SourceMeta source = 6;                   // ECS: source.*
+    DestinationMeta destination = 7;         // ECS: destination.*
+    ProcessMeta process = 8;                 // ECS: process.*
+    FileMeta file = 9;                       // ECS: file.*
+
+    map<string, string> custom_fields = 100; // Flexible for future-proofing
+}
+
+// Sub-messages
+message EventMeta {
+    repeated string category = 1;  // ECS: event.category
+    repeated string type = 2;      // ECS: event.type
+    string action = 3;             // ECS: event.action
+    string outcome = 4;            // ECS: event.outcome
+    string provider = 5;           // ECS: event.provider
+}
+
+message HostMeta {
+    string hostname = 1;           // ECS: host.hostname
+    string id = 2;                 // ECS: host.id
+}
+
+message UserMeta {
+    string name = 1;               // ECS: user.name
+    string id = 2;                 // ECS: user.id
+    string effective_id = 3;       // ECS: user.effective_id
+}
+
+message SourceMeta {
+    string ip = 1;                 // ECS: source.ip
+    int32 port = 2;                // ECS: source.port
+}
+
+message DestinationMeta {
+    string ip = 1;                 // ECS: destination.ip
+    int32 port = 2;                // ECS: destination.port
+}
+
+message ProcessMeta {
+    string name = 1;               // ECS: process.name
+    string executable = 2;         // ECS: process.executable
+    int32 pid = 3;                 // ECS: process.pid
+    int32 ppid = 4;                // ECS: process.ppid
+    repeated string args = 5;      // ECS: process.args
+}
+
+message FileMeta {
+    string path = 1;               // ECS: file.path
+    string access = 2;             // ECS: file.access
+}
+
+// gRPC Service
+service EventIngestor {
+    rpc SendEvent(SecurityEvent) returns (EventResponse);
+}
+
+message EventResponse {
+    string message = 1;
+}
