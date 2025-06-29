@@ -71,7 +71,7 @@ message FileMeta {
 
 // gRPC Service
 service EventIngestor {
-    rpc SendEvent(SecurityEvent) returns (EventResponse);
+    rpc StreamEvents (stream SecurityEvent) returns (stream EventResponse);
 }
 
 message EventResponse {

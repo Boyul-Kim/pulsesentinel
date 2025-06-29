@@ -19,14 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EventIngestor_SendEvent_FullMethodName = "/sentinel.EventIngestor/SendEvent"
+	EventIngestor_StreamEvents_FullMethodName = "/sentinel.EventIngestor/StreamEvents"
 )
 
 // EventIngestorClient is the client API for EventIngestor service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// gRPC Service
 type EventIngestorClient interface {
-	SendEvent(ctx context.Context, in *SecurityEvent, opts ...grpc.CallOption) (*EventResponse, error)
+	StreamEvents(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SecurityEvent, EventResponse], error)
 }
 
 type eventIngestorClient struct {
@@ -37,21 +39,26 @@ func NewEventIngestorClient(cc grpc.ClientConnInterface) EventIngestorClient {
 	return &eventIngestorClient{cc}
 }
 
-func (c *eventIngestorClient) SendEvent(ctx context.Context, in *SecurityEvent, opts ...grpc.CallOption) (*EventResponse, error) {
+func (c *eventIngestorClient) StreamEvents(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SecurityEvent, EventResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EventResponse)
-	err := c.cc.Invoke(ctx, EventIngestor_SendEvent_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &EventIngestor_ServiceDesc.Streams[0], EventIngestor_StreamEvents_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[SecurityEvent, EventResponse]{ClientStream: stream}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EventIngestor_StreamEventsClient = grpc.BidiStreamingClient[SecurityEvent, EventResponse]
 
 // EventIngestorServer is the server API for EventIngestor service.
 // All implementations must embed UnimplementedEventIngestorServer
 // for forward compatibility.
+//
+// gRPC Service
 type EventIngestorServer interface {
-	SendEvent(context.Context, *SecurityEvent) (*EventResponse, error)
+	StreamEvents(grpc.BidiStreamingServer[SecurityEvent, EventResponse]) error
 	mustEmbedUnimplementedEventIngestorServer()
 }
 
@@ -62,8 +69,8 @@ type EventIngestorServer interface {
 // pointer dereference when methods are called.
 type UnimplementedEventIngestorServer struct{}
 
-func (UnimplementedEventIngestorServer) SendEvent(context.Context, *SecurityEvent) (*EventResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendEvent not implemented")
+func (UnimplementedEventIngestorServer) StreamEvents(grpc.BidiStreamingServer[SecurityEvent, EventResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamEvents not implemented")
 }
 func (UnimplementedEventIngestorServer) mustEmbedUnimplementedEventIngestorServer() {}
 func (UnimplementedEventIngestorServer) testEmbeddedByValue()                       {}
@@ -86,23 +93,12 @@ func RegisterEventIngestorServer(s grpc.ServiceRegistrar, srv EventIngestorServe
 	s.RegisterService(&EventIngestor_ServiceDesc, srv)
 }
 
-func _EventIngestor_SendEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SecurityEvent)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(EventIngestorServer).SendEvent(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: EventIngestor_SendEvent_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(EventIngestorServer).SendEvent(ctx, req.(*SecurityEvent))
-	}
-	return interceptor(ctx, in, info, handler)
+func _EventIngestor_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(EventIngestorServer).StreamEvents(&grpc.GenericServerStream[SecurityEvent, EventResponse]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EventIngestor_StreamEventsServer = grpc.BidiStreamingServer[SecurityEvent, EventResponse]
 
 // EventIngestor_ServiceDesc is the grpc.ServiceDesc for EventIngestor service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -110,12 +106,14 @@ func _EventIngestor_SendEvent_Handler(srv interface{}, ctx context.Context, dec 
 var EventIngestor_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "sentinel.EventIngestor",
 	HandlerType: (*EventIngestorServer)(nil),
-	Methods: []grpc.MethodDesc{
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
 		{
-			MethodName: "SendEvent",
-			Handler:    _EventIngestor_SendEvent_Handler,
+			StreamName:    "StreamEvents",
+			Handler:       _EventIngestor_StreamEvents_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/sentinel/event.proto",
 }

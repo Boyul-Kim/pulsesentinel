@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"regexp"
 	"strconv"
@@ -32,6 +33,10 @@ type ECSEvent struct {
 	File        map[string]interface{} `json:"file,omitempty"`
 }
 
+const (
+	eventChannelBuffer = 1000
+)
+
 func InitAgent(addr string) *Agent {
 	fmt.Println("STARTING CLIENT SERVER")
 
@@ -54,37 +59,67 @@ func InitAgent(addr string) *Agent {
 	}
 }
 
-func (a *Agent) Watch(path string) {
-	eventGroups := make(map[string][]string)
+func (a *Agent) WatchAndStream(path string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	//channel for sending events through from watchLogFile goroutine
+	streamChan := make(chan ECSEvent, eventChannelBuffer)
+
+	//goroutine for starting watchLogFile and sending events through channel
+	//doing this for decoupling and performance
+	go a.watchLogFile(path, streamChan)
+
+	//init stream events client
+	stream, err := a.GrpcClient.StreamEvents(ctx)
+	if err != nil {
+		log.Fatalf("Failed to initialize stream client: %v", err)
+	}
+
+	//goroutine for receiving response from server
+	go func() {
+		for {
+			res, err := stream.Recv()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				log.Printf("Stream response error: %v", err)
+				break
+			}
+			log.Printf("Server response: %s", res.Message)
+		}
+
+	}()
+
+	//loop for receiving data from channel and sending to server
+	for event := range streamChan {
+		securityEvent := toProtoSecurityEvents(event)
+		if err := stream.Send(securityEvent); err != nil {
+			log.Printf("Error sending event: %v", err)
+			break
+		}
+	}
+	stream.CloseSend()
+}
+
+func (a *Agent) watchLogFile(path string, ch chan<- ECSEvent) {
 	t, err := tail.TailFile(path, tail.Config{Follow: true})
 	if err != nil {
 		log.Fatalf("Error with tail file: %s", err)
 	}
 
+	//continually look for events and send through channel
+	eventGroups := make(map[string][]string)
 	for line := range t.Lines {
 		msgID := extractMsgID(line.Text)
 		eventGroups[msgID] = append(eventGroups[msgID], line.Text)
 		auditEvent := parseAuditLinesToMap(eventGroups[msgID])
 		ecsEvent := mapAuditToECS(auditEvent)
-		go a.sendECSEvents(ecsEvent)
-		a.ECSEvents[msgID] = append(a.ECSEvents[msgID], ecsEvent)
+		ch <- ecsEvent
 		delete(eventGroups, msgID)
 	}
-}
-
-func (a *Agent) sendECSEvents(event ECSEvent) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	protoEvent := toProtoSecurityEvents(event)
-	resp, err := a.GrpcClient.SendEvent(ctx, protoEvent)
-	if err != nil {
-		log.Printf("Error sending event: %v", err)
-		return
-	}
-
-	log.Printf("Ingestor response: %s", resp.Message)
-
+	close(ch)
 }
 
 func toProtoSecurityEvents(ecs ECSEvent) *pb.SecurityEvent {

@@ -139,6 +139,7 @@ func (x *SecurityEvent) GetCustomFields() map[string]string {
 	return nil
 }
 
+// Sub-messages
 type EventMeta struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Category      []string               `protobuf:"bytes,1,rep,name=category,proto3" json:"category,omitempty"` // ECS: event.category
@@ -654,9 +655,9 @@ const file_proto_sentinel_event_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06access\x18\x02 \x01(\tR\x06access\")\n" +
 	"\rEventResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage2N\n" +
-	"\rEventIngestor\x12=\n" +
-	"\tSendEvent\x12\x17.sentinel.SecurityEvent\x1a\x17.sentinel.EventResponseB<Z:github.com/Boyul-Kim/pulsesentinel/proto/sentinel;sentinelb\x06proto3"
+	"\amessage\x18\x01 \x01(\tR\amessage2U\n" +
+	"\rEventIngestor\x12D\n" +
+	"\fStreamEvents\x12\x17.sentinel.SecurityEvent\x1a\x17.sentinel.EventResponse(\x010\x01B<Z:github.com/Boyul-Kim/pulsesentinel/proto/sentinel;sentinelb\x06proto3"
 
 var (
 	file_proto_sentinel_event_proto_rawDescOnce sync.Once
@@ -694,8 +695,8 @@ var file_proto_sentinel_event_proto_depIdxs = []int32{
 	6,  // 6: sentinel.SecurityEvent.process:type_name -> sentinel.ProcessMeta
 	7,  // 7: sentinel.SecurityEvent.file:type_name -> sentinel.FileMeta
 	9,  // 8: sentinel.SecurityEvent.custom_fields:type_name -> sentinel.SecurityEvent.CustomFieldsEntry
-	0,  // 9: sentinel.EventIngestor.SendEvent:input_type -> sentinel.SecurityEvent
-	8,  // 10: sentinel.EventIngestor.SendEvent:output_type -> sentinel.EventResponse
+	0,  // 9: sentinel.EventIngestor.StreamEvents:input_type -> sentinel.SecurityEvent
+	8,  // 10: sentinel.EventIngestor.StreamEvents:output_type -> sentinel.EventResponse
 	10, // [10:11] is the sub-list for method output_type
 	9,  // [9:10] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
