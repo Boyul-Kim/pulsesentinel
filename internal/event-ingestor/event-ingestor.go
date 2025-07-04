@@ -18,14 +18,13 @@ type EventIngestorServer struct {
 
 func NewEventIngestorServer() *EventIngestorServer {
 	fmt.Println("Starting kafka producer...")
-	writer := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:      []string{"localhost:9092"},
-		Topic:        "event-logs",
-		Balancer:     &kafka.Hash{},
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP("localhost:9092"),
+		Balancer:     &kafka.LeastBytes{},
+		Async:        true,
 		BatchSize:    100,
 		BatchTimeout: 10e6,
-		Async:        true,
-	})
+	}
 	return &EventIngestorServer{KafkaWriter: writer}
 }
 
@@ -52,6 +51,7 @@ func (s *EventIngestorServer) StreamEvents(stream pb.EventIngestor_StreamEventsS
 		}
 
 		msg := kafka.Message{
+			Topic: "alert",
 			Key:   []byte(event.EventId),
 			Value: value,
 		}
