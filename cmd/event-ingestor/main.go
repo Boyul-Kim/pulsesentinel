@@ -17,7 +17,11 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterEventIngestorServer(s, &event_ingestor.EventIngestorServer{})
+
+	ingestor := event_ingestor.NewEventIngestorServer()
+	defer ingestor.KafkaWriter.Close()
+
+	pb.RegisterEventIngestorServer(s, ingestor)
 	log.Println("EVENT INGESTOR SERVICE LISTENING ON :50051")
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
